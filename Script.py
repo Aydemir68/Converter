@@ -202,6 +202,25 @@ def convert_pdf_to_docx_then_txt(pdf_path, output_folder):
     except Exception as e:
         raise Exception(f"Ошибка при конвертации через DOCX в TXT: {e}")
 
+def convert_docx_to_txt(docx_path, output_folder):
+    """Конвертирует DOCX файл в TXT с кодировкой utf-8."""
+    try:
+        from docx import Document
+        import os
+        os.makedirs(output_folder, exist_ok=True)
+        filename_without_ext = os.path.splitext(os.path.basename(docx_path))[0]
+        txt_output_path = os.path.join(output_folder, f"{filename_without_ext}.txt")
+        doc = Document(docx_path)
+        full_text = []
+        for para in doc.paragraphs:
+            full_text.append(para.text)
+        text = '\n'.join(full_text)
+        with open(txt_output_path, 'w', encoding='utf-8') as txt_file:
+            txt_file.write(text)
+        return True, f"Успешно конвертировано DOCX -> TXT: {os.path.basename(docx_path)}"
+    except Exception as e:
+        return False, f"Ошибка при конвертации DOCX -> TXT: {e}"
+
 def select_files():
     file_paths = filedialog.askopenfilenames(
         title="Выберите PDF файлы для конвертации",
@@ -371,6 +390,69 @@ def start_conversion(conversion_method):
     conversion_thread.daemon = True
     conversion_thread.start()
 
+def start_docx_to_txt_conversion():
+    docx_files = filedialog.askopenfilenames(
+        title="Выберите DOCX файлы для конвертации",
+        filetypes=[("DOCX files", "*.docx")]
+    )
+    if not docx_files:
+        messagebox.showinfo("Информация", "Файлы не выбраны.")
+        return
+
+    output_folder = select_output_folder()
+    if not output_folder:
+        messagebox.showinfo("Информация", "Папка для сохранения не выбрана.")
+        return
+
+    progress = ConversionProgress(root)
+    progress.show_progress_window(len(docx_files))
+
+    def conversion_worker():
+        successful_conversions = []
+        failed_conversions = []
+        for i, docx_file_path in enumerate(docx_files):
+            try:
+                progress.update_progress(i, len(docx_files), docx_file_path)
+                success, message = convert_docx_to_txt(docx_file_path, output_folder)
+                if success:
+                    successful_conversions.append(os.path.basename(docx_file_path))
+                    progress.add_result(f"✅ {message}")
+                else:
+                    failed_conversions.append(os.path.basename(docx_file_path))
+                    progress.add_result(f"❌ {message}", is_error=True)
+            except Exception as e:
+                failed_conversions.append(os.path.basename(docx_file_path))
+                error_msg = f"❌ Ошибка при конвертации {os.path.basename(docx_file_path)}: {str(e)}"
+                progress.add_result(error_msg, is_error=True)
+                print(f"Ошибка при конвертации {docx_file_path}: {e}")
+        progress.update_progress(len(docx_files), len(docx_files))
+        final_message = f"Конвертация завершена!\n\n"
+        final_message += f"✅ Успешно конвертировано: {len(successful_conversions)}\n"
+        final_message += f"❌ Ошибок: {len(failed_conversions)}\n\n"
+        if failed_conversions:
+            final_message += "Список файлов с ошибками (копируйте для поиска):\n"
+            for failed_file in failed_conversions:
+                final_message += f"{failed_file}\n"
+            error_report_path = os.path.join(output_folder, "error_report.txt")
+            with open(error_report_path, 'w', encoding='utf-8') as f:
+                f.write("Отчет об ошибках конвертации\n")
+                f.write("=" * 40 + "\n\n")
+                f.write(f"Дата: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Всего файлов: {len(docx_files)}\n")
+                f.write(f"Успешно: {len(successful_conversions)}\n")
+                f.write(f"Ошибок: {len(failed_conversions)}\n\n")
+                f.write("Список файлов с ошибками (копируйте для поиска):\n")
+                for failed_file in failed_conversions:
+                    f.write(f"{failed_file}\n")
+            final_message += f"\nОтчет об ошибках сохранен в: {os.path.basename(error_report_path)}"
+        progress.add_result("\n" + "="*50)
+        progress.add_result(final_message)
+        root.after(1000, lambda: messagebox.showinfo("Конвертация завершена", final_message))
+        progress.enable_close()
+    conversion_thread = threading.Thread(target=conversion_worker)
+    conversion_thread.daemon = True
+    conversion_thread.start()
+
 # GUI Setup
 root = tk.Tk()
 root.title("PDF в TXT конвертер (Улучшенный)")
@@ -389,5 +471,9 @@ direct_txt_button.pack(pady=5, fill=tk.X, padx=20)
 
 docx_txt_button = tk.Button(root, text="PDF -> DOCX -> TXT (для проблемных PDF)", command=lambda: start_conversion('docx_then_txt'))
 docx_txt_button.pack(pady=5, fill=tk.X, padx=20)
+
+# Добавляю кнопку для DOCX -> TXT
+docx2txt_button = tk.Button(root, text="DOCX -> TXT (конвертация DOCX в TXT)", command=start_docx_to_txt_conversion)
+docx2txt_button.pack(pady=5, fill=tk.X, padx=20)
 
 root.mainloop()

@@ -15,29 +15,29 @@ from Script import (
     ocr_pdf_to_txt, 
     convert_pdf_to_txt_direct, 
     convert_pdf_to_docx_then_txt,
-    extract_text_from_pdf_pypdf
+    extract_text_from_pdf_pypdf,
+    convert_docx_to_txt
 )
 
 def batch_convert(input_folder, output_folder, method='auto', pattern='*.pdf'):
     """
-    Batch convert PDF files to TXT
-    
+    Batch convert PDF or DOCX files to TXT
     Args:
-        input_folder: Folder containing PDF files
+        input_folder: Folder containing files
         output_folder: Folder to save TXT files
-        method: Conversion method ('auto', 'direct', 'ocr', 'docx')
-        pattern: File pattern to match (default: *.pdf)
+        method: Conversion method ('auto', 'direct', 'ocr', 'docx', 'docx2txt')
+        pattern: File pattern to match (default: *.pdf or *.docx)
     """
     
-    # Find all PDF files
-    pdf_files = glob.glob(os.path.join(input_folder, pattern))
-    pdf_files.extend(glob.glob(os.path.join(input_folder, pattern.upper())))  # Also find .PDF files
+    # Find all files by pattern
+    files = glob.glob(os.path.join(input_folder, pattern))
+    files.extend(glob.glob(os.path.join(input_folder, pattern.upper())))
     
-    if not pdf_files:
-        print(f"❌ PDF файлы не найдены в папке: {input_folder}")
+    if not files:
+        print(f"❌ Файлы не найдены в папке: {input_folder}")
         return
     
-    print(f"📁 Найдено {len(pdf_files)} PDF файлов")
+    print(f"📁 Найдено {len(files)} файлов по шаблону {pattern}")
     print(f"📂 Папка ввода: {input_folder}")
     print(f"📂 Папка вывода: {output_folder}")
     print(f"🔧 Метод конвертации: {method}")
@@ -49,34 +49,40 @@ def batch_convert(input_folder, output_folder, method='auto', pattern='*.pdf'):
     successful_conversions = []
     failed_conversions = []
     
-    for i, pdf_file in enumerate(pdf_files, 1):
-        filename = os.path.basename(pdf_file)
-        print(f"[{i}/{len(pdf_files)}] Обрабатывается: {filename}")
+    for i, file_path in enumerate(files, 1):
+        filename = os.path.basename(file_path)
+        print(f"[{i}/{len(files)}] Обрабатывается: {filename}")
         txt_path = os.path.join(output_folder, os.path.splitext(filename)[0] + '.txt')
         try:
-            # Determine conversion method if auto
-            if method == 'auto':
-                # Try direct extraction first
-                try:
-                    text = extract_text_from_pdf_pypdf(pdf_file)
-                    if len(text.strip()) > 50:  # If we got substantial text
-                        conversion_method = 'direct'
-                    else:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext == '.pdf':
+                # Determine conversion method if auto
+                if method == 'auto':
+                    # Try direct extraction first
+                    try:
+                        text = extract_text_from_pdf_pypdf(file_path)
+                        if len(text.strip()) > 50:  # If we got substantial text
+                            conversion_method = 'direct'
+                        else:
+                            conversion_method = 'ocr'
+                    except:
                         conversion_method = 'ocr'
-                except:
-                    conversion_method = 'ocr'
+                else:
+                    conversion_method = method
+                
+                # Perform conversion
+                if conversion_method == 'direct':
+                    success, message = convert_pdf_to_txt_direct(file_path, output_folder)
+                elif conversion_method == 'ocr':
+                    success, message = ocr_pdf_to_txt(file_path, output_folder)
+                elif conversion_method == 'docx':
+                    success, message = convert_pdf_to_docx_then_txt(file_path, output_folder)
+                else:
+                    raise Exception(f"Неизвестный метод конвертации: {conversion_method}")
+            elif ext == '.docx':
+                success, message = convert_docx_to_txt(file_path, output_folder)
             else:
-                conversion_method = method
-            
-            # Perform conversion
-            if conversion_method == 'direct':
-                success, message = convert_pdf_to_txt_direct(pdf_file, output_folder)
-            elif conversion_method == 'ocr':
-                success, message = ocr_pdf_to_txt(pdf_file, output_folder)
-            elif conversion_method == 'docx':
-                success, message = convert_pdf_to_docx_then_txt(pdf_file, output_folder)
-            else:
-                raise Exception(f"Неизвестный метод конвертации: {conversion_method}")
+                raise Exception(f"Неизвестный тип файла: {filename}")
             
             # Проверка на пустой результат и мусор
             is_empty = False
@@ -148,7 +154,7 @@ def batch_convert(input_folder, output_folder, method='auto', pattern='*.pdf'):
             f.write(f"Папка ввода: {input_folder}\n")
             f.write(f"Папка вывода: {output_folder}\n")
             f.write(f"Метод конвертации: {method}\n")
-            f.write(f"Всего файлов: {len(pdf_files)}\n")
+            f.write(f"Всего файлов: {len(files)}\n")
             f.write(f"Успешно: {len(successful_conversions)}\n")
             f.write(f"Ошибок: {len(failed_conversions)}\n\n")
             f.write("Список файлов с ошибками (копируйте для поиска):\n")
@@ -196,10 +202,10 @@ def main():
     
     parser.add_argument('input_folder', help='Папка с PDF файлами')
     parser.add_argument('output_folder', help='Папка для сохранения TXT файлов')
-    parser.add_argument('--method', choices=['auto', 'direct', 'ocr', 'docx'], 
+    parser.add_argument('--method', choices=['auto', 'direct', 'ocr', 'docx', 'docx2txt'], 
                        default='auto', help='Метод конвертации (по умолчанию: auto)')
     parser.add_argument('--pattern', default='*.pdf', 
-                       help='Шаблон файлов (по умолчанию: *.pdf)')
+                       help='Шаблон файлов (по умолчанию: *.pdf или *.docx)')
     
     args = parser.parse_args()
     
